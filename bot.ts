@@ -1,8 +1,8 @@
 /// <reference path="decl/node.d.ts" />
 import query = require('querystring')
 import url = require('url')
-
 import { IncomingMessage as ServerRequest, ServerResponse, createServer } from 'http';
+import * as intf from './interface'
 
 export interface BotOptions {
     pageToken: string
@@ -26,8 +26,8 @@ export class Bot {
                 bot.parseMessagingEvent(req, resp)
             } else {
                 resp.statusCode = 400
+                resp.end()
             }
-            resp.end()
         }
     }
 
@@ -35,10 +35,11 @@ export class Bot {
         let params = query.parse(url.parse(req.url).query)
         if (params['hub.mode'] === 'subscribe' && params['hub.verify_token'] === this.options.verifyToken) {
             resp.statusCode = 200
-            resp.write(params['hub.challenge'])
+            resp.end(params['hub.challenge'])
             console.log('validation: ok')
         } else {
             resp.statusCode = 403
+            resp.end()
             console.log('validation: fail')
         }
     }
@@ -50,17 +51,21 @@ export class Bot {
         })
         req.on('end', () => {
             //integrity check
+            resp.statusCode = 200
+            resp.end()
             this.handleMessage(JSON.parse(data))
-            req.statusCode = 200
             console.log('message receive: ok')
         })
         req.on('error', () => {
-            req.statusCode = 500
+            resp.statusCode = 500
+            resp.end()
             console.log('message receive: fail')
         })
     }
 
     private handleMessage(json: any) {
-
+        json.entry.forEach(element => {
+            
+        });
     }
 }
