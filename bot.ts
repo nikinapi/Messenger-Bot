@@ -1,19 +1,33 @@
 /// <reference path="decl/node.d.ts" />
+/// <reference path="decl/request.d.ts" />
 import query = require('querystring')
 import url = require('url')
 import { IncomingMessage as ServerRequest, ServerResponse, createServer } from 'http';
-import * as intf from './interface'
+import * as he from './hookEvents'
+import { BotResponseFactory, IBotResponse } from './responses'
+import request = require('request')
 
 export interface BotOptions {
     pageToken: string
     verifyToken: string
 }
 
+declare type EventCallback = (arg: IBotResponse) => void
+
 export class Bot {
     private options: BotOptions
 
     public constructor(options: BotOptions) {
         this.options = options
+    }
+
+    public wakeUp() {
+        request({
+            method: 'POST',
+            uri: `https://graph.facebook.com/v2.6/me/subscribed_apps?access_token=${this.options.pageToken}`,
+        }, (err, res, body) => {
+            console.log(body)
+        })
     }
 
     public handler(): (ServerRequest, ServerResponse) => void {
@@ -46,6 +60,7 @@ export class Bot {
 
     private parseMessagingEvent(req: ServerRequest, resp: ServerResponse) {
         let data = ''
+        console.log('start parse')
         req.on('data', (chunk) => {
             data += chunk
         })
@@ -53,7 +68,9 @@ export class Bot {
             //integrity check
             resp.statusCode = 200
             resp.end()
-            this.handleMessage(JSON.parse(data))
+            console.log('hpayload')
+            this.handlePayload(JSON.parse(data))
+            //console.log(data)
             console.log('message receive: ok')
         })
         req.on('error', () => {
@@ -63,9 +80,33 @@ export class Bot {
         })
     }
 
-    private handleMessage(json: any) {
+    private handlePayload(json: any) {
+
         json.entry.forEach(element => {
-            
-        });
+            element.messaging.forEach(m => {
+                this.messageHandlerCallback(m)
+            })
+        })
     }
+
+    private messageHandlerCallback(message: any) {
+        let hMessage = new he.HookMessage(message)
+        let bot = this
+        let callback = function (arg: IBotResponse): void {
+            request({
+                method: 'POST',
+                uri: 'https://graph.facebook.com/v2.6/me/messages',
+                qs: {
+                    access_token: bot.options.pageToken
+                },
+                json: arg
+            }, (err, res, body) => {
+                console.log('responded')
+            })
+        }
+        console.log('call handler')
+        this.messageHandler(message, new BotResponseFactory(hMessage.sender), callback)
+    }
+
+    messageHandler: (message: he.HookMessage, factory: BotResponseFactory, completionHandler: EventCallback) => void
 }
