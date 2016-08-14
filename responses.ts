@@ -1,99 +1,7 @@
-export interface IBotResponse { }
+/// <reference path="decl/request.d.ts" />
 
-interface IResponseTemplate extends IBotResponse {
-    recipient: IResponseRecipient
-    message?: IResponseMessage
-    sender_action?: ResponseSenderAction
-}
-
-interface IResponseRecipient {
-    id: string
-}
-
-class ResponseSenderAction {
-    static actionMarkSeen: 'mark_seen'
-    static actionTypingOn: 'typing_on'
-    static actionTypingOff: 'typing_off'
-}
-
-interface IResponseMessage {
-}
-
-class TextMessage implements IResponseMessage {
-    constructor(public text: string) { }
-}
-
-export enum AttachmentType {
-    image, audio, video, file
-}
-
-class AttachmentMessage implements IResponseMessage {
-    attachment: any
-
-    static withUrl(type: string, url: string) {
-        let object = new AttachmentMessage()
-        object.attachment = { type: type, payload: { url: url }}
-        return object
-    }
-
-    static withFile(type: string, file: string) {
-        let object = new AttachmentMessage()
-        object.attachment = { type: type, payload: {}}
-    }
-}
-
-class ButtonsMessage implements IResponseMessage {
-    attachment: any
-
-    constructor(text: string, buttons: IResponseButton[]) {
-        this.attachment = {
-            type: 'template',
-            payload: {
-                template_type: 'button',
-                text: text,
-                buttons: buttons
-            }
-        }
-    }
-}
-
-// class ResponseAttachmentType {
-//     static typeImage: 'image'
-//     static typeAudio: 'audio'
-//     static typeFile: 'file'
-//     static typeTemplate: 'template'
-// }
-
-// interface IResponseAttachment {
-//     type: ResponseAttachmentType
-//     payload: IResponseAttachmentPayload
-//     filepath?: string
-// }
-
-// class ResponseAttachmentFile implements IResponseAttachment {
-//     payload: IResponseAttachmentPayload
-//     constructor(public type: ResponseAttachmentType) {
-//         this.payload = { }
-//     }
-// }
-
-// class ResponseAttachmentUrl implements IResponseAttachment {
-//     payload: IResponseAttachmentPayload
-//     constructor(public type: ResponseAttachmentType, url: string) {
-//         this.payload = { url: url }
-//     }
-// }
-
-// class ResponseAttachmentTemplateType {
-//     static typeButtons: 'buttons'
-// }
-
-// interface IResponseAttachmentPayload {
-//     url?: string
-//     template_type?: ResponseAttachmentTemplateType
-//     text?: string
-//     buttons?: IResponseButton[]
-// }
+import request = require('request')
+import fs = require('fs')
 
 export interface IResponseButton {
     type: string
@@ -106,7 +14,7 @@ export class ResponseUrlButton implements IResponseButton {
     type = 'web_url'
     web_url: string
 
-    constructor(public title, url: string) {
+    constructor(public title: string, url: string) {
         this.web_url = url
     }
 }
@@ -115,7 +23,7 @@ export class ResponsePostbackButton implements IResponseButton {
     type = 'postback'
     payload: string
 
-    constructor(public title, postback: string) {
+    constructor(public title: string, postback: string) {
         this.payload = postback 
     }
 }
@@ -124,54 +32,186 @@ export class ResponsePhoneNumberButton implements IResponseButton {
     type = 'phone_number'
     payload: string
 
-    constructor(public title, phone: string) {
+    constructor(public title: string, phone: string) {
         this.payload = phone
     }
 }
 
-interface Dictionary<T> {
-    [key: string]: T
-    [key: number]: T
+export interface IGenericElement {
+    title: string
+    subtitle?: string
+    item_url?: string
+    image_url?: string
+    buttons?: [IResponseButton]
 }
 
-let attachmentTypeToString: Dictionary<string> = {
-    0: 'image',
-    1: 'audio',
-    2: 'video',
-    3: 'file'
+export class AttachmentType { 
+    static caseImage = 'image'
+    static caseAudio = 'audio'
+    static caseVideo = 'video'
+    static caseFile = 'file'
+}
+
+export class ResponseSenderAction {
+    static caseMarkSeen: 'mark_seen'
+    static caseTypingOn: 'typing_on'
+    static caseTypingOff: 'typing_off'
+}
+
+export class ResponseQuickReply {
+    content_type = 'text'
+    constructor(public title: string, public payload: string) { }
 }
 
 export class BotResponseFactory {
-    constructor(private recipient: string) {
-        this.recipient = recipient
+    constructor(private recipient: string, private pageToken: string) { }
+
+    senderAction(action: ResponseSenderAction) {
+        let response = {
+            'recipient': { id: this.recipient },
+            'sender_action': action
+        }
+        this.makeRequest(response)
     }
 
-    text(text: string): IBotResponse {
+    text(text: string) {
         let response = this.template()
-        response.message = new TextMessage(text)
-        return response
+        response.message = { text: text }
+        this.makeRequest(response)
     }
 
-    attachment(type: AttachmentType, url: string): IBotResponse {
+    attachment(type: AttachmentType, url: string) {
         let response = this.template()
-        response.message = AttachmentMessage.withUrl(attachmentTypeToString[type], url)
-        return response;
+        response.message = {
+            'attachment': {
+                'type': type,
+                'payload': {
+                    'url': url
+                }
+            }
+        }
+        this.makeRequest(response)
     }
 
-    buttons(text: string, buttons: IResponseButton[]): IBotResponse {
+    attachmentFile(type: AttachmentType, path: string) {
         let response = this.template()
-        response.message = new ButtonsMessage(text, buttons)
-        return response
+        response.message = {
+            'attachment': {
+                'type': type,
+                'payload': { }
+            }
+        }
+        this.makeRequest(response, path)
     }
 
-    quick(): IBotResponse {
-        return  {};
+    buttons(text: string, buttons: IResponseButton[]) {
+        let response = this.template()
+        response.message = {
+            'attachment': {
+                'type': 'template',
+                'payload': {
+                    'template_type': 'button',
+                    'text': 'What do you want to do next?',
+                    'buttons': buttons
+                }
+            }
+        }
+        this.makeRequest(response)
     }
 
-    private template(): IResponseTemplate {
+    generic(elements: IGenericElement[]) {
+        let response = this.template()
+        response.message = {
+            'attachment': {
+                'type': 'template',
+                'payload': {
+                    'template_type': 'generic',
+                    'elements': elements
+                }
+            }
+        }
+        this.makeRequest(response)
+    }
+
+    quick(text: string, options: ResponseQuickReply[]) {
+        let response = this.template()
+        response.message = {
+            'text': text,
+            'quick_replies': options
+        }
+        this.makeRequest(response)
+    }
+
+    quickImage(url: string, options: ResponseQuickReply[]) {
+        let response = this.template()
+        response.message = {
+            'attachment': {
+                'type': 'image',
+                'payload': { 
+                    'url': url
+                }
+            },
+            'quick_replies': options
+        }
+        this.makeRequest(response)
+    }
+
+    quickImageFile(path: string, options: ResponseQuickReply[]) {
+        let response = this.template()
+        response.message = {
+            'attachment': {
+                'type': 'image',
+                'payload': { }
+            },
+            'quick_replies': options
+        }
+        this.makeRequest(response, path)
+    }
+
+    quickGeneric(elements: IGenericElement[], options: ResponseQuickReply[]) {
+        let response = this.template()
+        response.message = {
+            'attachment': {
+                'type': 'template',
+                'payload': {
+                    'template_type': 'generic',
+                    'elements': elements
+                }
+            },
+            'quick_replies': options
+        }
+        this.makeRequest(response)
+    }
+
+    //////
+
+    private template() {
         return {
-            recipient: { id: this.recipient },
-            message: {}
+            'recipient': { id: this.recipient },
+            'message': {}
+        }
+    }
+
+    private makeRequest(arg: any, path?: string) {
+        let options: any = {
+            method: 'POST',
+            uri: 'https://graph.facebook.com/v2.6/me/messages',
+            qs: {
+                'access_token': this.pageToken
+            }
+        }
+        let completion = (err, res, body) => {
+            console.log(body)
+            console.log('responded')
+        }
+        if (path) {
+            console.log('streaming')
+            arg.filedata = fs.createReadStream(path)
+            options.form = arg
+            request(options, completion)
+        } else {
+            options.json = arg
+            request(options, completion)
         }
     }
 }
